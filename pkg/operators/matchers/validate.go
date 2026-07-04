@@ -10,7 +10,7 @@ import (
 	sliceutil "github.com/projectdiscovery/utils/slice"
 )
 
-var commonExpectedFields = []string{"Type", "Condition", "Name", "MatchAll", "Negative", "Internal"}
+var commonExpectedFields = []string{"Type", "Condition", "Name", "MatchAll", "Negative", "Internal", "Confidence", "Scope"}
 
 // Validate perform initial validation on the matcher structure
 func (matcher *Matcher) Validate() error {

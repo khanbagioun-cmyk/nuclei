@@ -318,6 +318,23 @@ func wrappedGet(options *types.Options, configuration *Configuration, host strin
 	retryableHttpOptions.RetryWaitMax = 10 * time.Second
 	retryableHttpOptions.RetryMax = options.Retries
 	retryableHttpOptions.Timeout = time.Duration(options.Timeout) * time.Second
+	// Use exponential backoff with jitter to avoid thundering herd and
+	// reduce false negatives on flaky/rate-limited targets.
+	retryableHttpOptions.Backoff = retryablehttp.ExponentialJitterBackoff()
+	// Retry on connection errors, server errors, AND rate-limiting (429/503)
+	// to reduce false negatives on targets that throttle aggressive scanning.
+	retryableHttpOptions.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		if err != nil {
+			return retryablehttp.CheckRecoverableErrors(ctx, resp, err)
+		}
+		if resp != nil && (resp.StatusCode == 429 || resp.StatusCode == 503) {
+			return true, nil
+		}
+		return false, nil
+	}
 	if configuration.ResponseHeaderTimeout > 0 && configuration.ResponseHeaderTimeout > retryableHttpOptions.Timeout {
 		retryableHttpOptions.Timeout = configuration.ResponseHeaderTimeout
 	}

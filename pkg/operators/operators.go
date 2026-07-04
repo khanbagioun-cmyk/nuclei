@@ -300,6 +300,15 @@ func (operators *Operators) Execute(data map[string]interface{}, match MatchFunc
 				continue
 			}
 		}
+		// Skip matchers whose redirect-chain scope doesn't match this response.
+		// The "is_final_response" key is set by the HTTP protocol handler in
+		// the redirect loop to indicate whether this is the final response or
+		// an intermediate redirect response.
+		if isFinal, ok := data["is_final_response"].(bool); ok {
+			if !matcher.AppliesToRedirect(isFinal) {
+				continue
+			}
+		}
 		if isMatch, matched := match(data, matcher); isMatch {
 			if isDebug { // matchers without an explicit name or with AND condition should only be made visible if debug is enabled
 				matcherName := GetMatcherName(matcher, matcherIndex)

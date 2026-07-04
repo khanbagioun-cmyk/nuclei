@@ -431,7 +431,7 @@ on extensive configurability, massive extensibility and ease of use.`)
 	)
 	flagSet.CreateGroup("optimization", "Optimizations",
 		flagSet.IntVar(&options.Timeout, "timeout", 10, "time to wait in seconds before timeout"),
-		flagSet.IntVar(&options.Retries, "retries", 1, "number of times to retry a failed request"),
+		flagSet.IntVar(&options.Retries, "retries", 2, "number of times to retry a failed request"),
 		flagSet.BoolVarP(&options.LeaveDefaultPorts, "leave-default-ports", "ldp", false, "leave default HTTP/HTTPS ports (eg. host:80,host:443)"),
 		flagSet.IntVarP(&options.MaxHostError, "max-host-error", "mhe", 30, "max errors for a host before skipping from scan"),
 		flagSet.StringSliceVarP(&options.TrackError, "track-error", "te", nil, "adds given error to max-host-error watchlist (standard, file)", goflags.FileStringSliceOptions),
@@ -501,6 +501,10 @@ on extensive configurability, massive extensibility and ease of use.`)
 		flagSet.IntVarP(&options.StatsInterval, "stats-interval", "si", 5, "number of seconds to wait between showing a statistics update"),
 		flagSet.IntVarP(&options.MetricsPort, "metrics-port", "mp", 9092, "port to expose nuclei metrics on"),
 		flagSet.BoolVarP(&options.HTTPStats, "http-stats", "hps", false, "enable http status capturing (experimental)"),
+		flagSet.BoolVarP(&options.EnableProfiler, "enable-profiler", "prf", false, "enable custom profiler with per-template/host metrics"),
+		flagSet.StringVarP(&options.ProfilerAddr, "profiler-addr", "prfa", "127.0.0.1:19090", "address for the profiler HTTP server"),
+		flagSet.StringVarP(&options.ProfilerReport, "profiler-report", "prfr", "", "file to write final profiler JSON report"),
+		flagSet.BoolVarP(&options.ProfilerAutoTune, "profiler-autotune", "prat", false, "enable automatic concurrency/rate-limit tuning based on profiler metrics"),
 	)
 
 	flagSet.CreateGroup("cloud", "Cloud",

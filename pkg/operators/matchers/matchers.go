@@ -128,6 +128,27 @@ type Matcher struct {
 	//   - false
 	//   - true
 	Internal bool `yaml:"internal,omitempty" json:"internal,omitempty" jsonschema:"title=hide matcher from output,description=hide matcher from output"`
+	// description: |
+	//   Confidence level of the matcher. Used for filtering and prioritization.
+	//   When unset, defaults to "medium". High-confidence matchers use specific
+	//   patterns (version numbers, unique strings). Low-confidence matchers use
+	//   generic patterns (common words, status codes only).
+	// values:
+	//   - "high"
+	//   - "medium"
+	//   - "low"
+	Confidence string `yaml:"confidence,omitempty" json:"confidence,omitempty" jsonschema:"title=confidence level,description=Confidence level of the matcher for filtering,enum=high,enum=medium,enum=low"`
+	// description: |
+	//   Scope controls which response in a redirect chain the matcher applies to.
+	//   "all" (default) = match against every response in the chain.
+	//   "final-only" = match only against the final (non-redirect) response.
+	//   "redirects-only" = match only against intermediate redirect responses.
+	//   This prevents false positives from matchers firing on redirect bodies.
+	// values:
+	//   - "all"
+	//   - "final-only"
+	//   - "redirects-only"
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty" jsonschema:"title=redirect chain scope,description=Which response in redirect chain to match against,enum=all,enum=final-only,enum=redirects-only"`
 
 	// cached data for the compiled matcher
 	condition     ConditionType // todo: this field should be the one used for overridden marshal ops
@@ -167,4 +188,74 @@ func (matcher *Matcher) ResultWithMatchedSnippet(data bool, matchedSnippet []str
 		return !data, []string{}
 	}
 	return data, matchedSnippet
+}
+
+// ScopeType controls which response in a redirect chain a matcher applies to.
+type ScopeType int
+
+const (
+	// ScopeAll matches against every response in the redirect chain (default).
+	ScopeAll ScopeType = iota
+	// ScopeFinalOnly matches only against the final (non-redirect) response.
+	ScopeFinalOnly
+	// ScopeRedirectsOnly matches only against intermediate redirect responses.
+	ScopeRedirectsOnly
+)
+
+var scopeTypes = map[string]ScopeType{
+	"":                ScopeAll,
+	"all":             ScopeAll,
+	"final-only":      ScopeFinalOnly,
+	"redirects-only":  ScopeRedirectsOnly,
+}
+
+// GetScope returns the parsed ScopeType for this matcher.
+func (matcher *Matcher) GetScope() ScopeType {
+	if s, ok := scopeTypes[matcher.Scope]; ok {
+		return s
+	}
+	return ScopeAll
+}
+
+// ConfidenceType is the confidence level of a matcher.
+type ConfidenceType int
+
+const (
+	// ConfidenceLow is for generic matchers (single word, status-only, etc.).
+	ConfidenceLow ConfidenceType = iota
+	// ConfidenceMedium is for multi-condition matchers (default).
+	ConfidenceMedium
+	// ConfidenceHigh is for specific matchers (version regex, unique strings, exploit proof).
+	ConfidenceHigh
+)
+
+var confidenceTypes = map[string]ConfidenceType{
+	"":       ConfidenceMedium,
+	"low":    ConfidenceLow,
+	"medium": ConfidenceMedium,
+	"high":   ConfidenceHigh,
+}
+
+// GetConfidence returns the parsed ConfidenceType for this matcher.
+func (matcher *Matcher) GetConfidence() ConfidenceType {
+	if c, ok := confidenceTypes[matcher.Confidence]; ok {
+		return c
+	}
+	return ConfidenceMedium
+}
+
+// AppliesToRedirect returns true if this matcher should be evaluated
+// for a response that is part of a redirect chain at the given position.
+// isFinal=true means this is the final (last) response in the chain.
+func (matcher *Matcher) AppliesToRedirect(isFinal bool) bool {
+	scope := matcher.GetScope()
+	switch scope {
+	case ScopeAll:
+		return true
+	case ScopeFinalOnly:
+		return isFinal
+	case ScopeRedirectsOnly:
+		return !isFinal
+	}
+	return true
 }

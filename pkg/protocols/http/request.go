@@ -1017,6 +1017,7 @@ func (request *Request) executeRequest(input *contextargs.Context, generatedRequ
 	})
 
 	// evaluate responses continuously until first redirect request in reverse order
+	isFirstResponse := true
 	for respChain.Has() {
 		// fill buffers, read response body and reuse connection
 		if err := respChain.Fill(); err != nil {
@@ -1144,6 +1145,9 @@ func (request *Request) executeRequest(input *contextargs.Context, generatedRequ
 
 		interimEvent := generators.MergeMaps(generatedRequest.dynamicValues, finalEvent)
 		interimEvent["payloads"] = generatedRequest.meta
+		// Mark whether this is the final response in the redirect chain.
+		// Matchers with scope "final-only" or "redirects-only" use this flag.
+		interimEvent["is_final_response"] = isFirstResponse
 		// add the request URL pattern to the event BEFORE operators execute
 		// so that interactsh events etc can also access it
 		if request.options.ExportReqURLPattern {
@@ -1192,6 +1196,7 @@ func (request *Request) executeRequest(input *contextargs.Context, generatedRequ
 		// proceed with previous response
 		// we evaluate operators recursively for each response
 		// until we reach the first redirect response
+		isFirstResponse = false
 		if !respChain.Previous() {
 			break
 		}
