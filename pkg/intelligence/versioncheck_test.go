@@ -175,6 +175,34 @@ func TestVersionChecker_CheckVersion(t *testing.T) {
 	}
 }
 
+func TestVersionChecker_CheckBelowSafeVersion(t *testing.T) {
+	vc := NewVersionChecker()
+
+	// nginx 1.10.0 is below debian safe version 1.18.0
+	result := vc.CheckBelowSafeVersion("1.10.0", "debian", "nginx")
+	if !result.Vulnerable {
+		t.Errorf("expected nginx 1.10.0 to be below safe on debian, got: %s", result.Reason)
+	}
+
+	// nginx 1.25.3 is above debian safe version 1.18.0
+	result = vc.CheckBelowSafeVersion("1.25.3", "debian", "nginx")
+	if result.Vulnerable {
+		t.Errorf("expected nginx 1.25.3 to be safe on debian, got: %s", result.Reason)
+	}
+
+	// Unknown product
+	result = vc.CheckBelowSafeVersion("1.0.0", "debian", "unknown-product")
+	if result.Vulnerable {
+		t.Error("expected not vulnerable for unknown product")
+	}
+
+	// Unknown distro
+	result = vc.CheckBelowSafeVersion("1.0.0", "unknown-distro", "nginx")
+	if result.Vulnerable {
+		t.Error("expected not vulnerable for unknown distro")
+	}
+}
+
 func TestVersionChecker_DistroBackport(t *testing.T) {
 	vc := NewVersionChecker()
 

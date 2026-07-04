@@ -32,6 +32,7 @@ func main() {
 	profileTimeout := flag.Duration("profile-timeout", 60*time.Second, "phase 1 timeout")
 	runWorkflows := flag.Bool("workflows", true, "run native nuclei workflows after phase 2 (conditional template chaining)")
 	runDast := flag.Bool("dast", true, "run DAST community templates (phase 2.5)")
+	runVersionCheck := flag.Bool("version-check", true, "run version-based CVE check (phase 2.6)")
 	profileName := flag.String("profile", "", "use a built-in scan profile (e.g., critical-cve-sweep, quick-kev-sweep, full-exposure-audit, wordpress-deep, tech-discovery-only, dast-injection)")
 	listProfiles := flag.Bool("list-profiles", false, "list available built-in scan profiles")
 	help := flag.Bool("h", false, "show help")
@@ -317,6 +318,23 @@ Examples:
 		}
 	}
 
+	// === Phase 2.6: Version-based CVE check ===
+	vcCount := 0
+	if *runVersionCheck {
+		fmt.Println("[smartchain] phase 2.6: running version-based CVE check...")
+		vcStart := time.Now()
+
+		vcResultFile := filepath.Join(os.TempDir(), fmt.Sprintf("smartchain-vc-results-%d.jsonl", time.Now().UnixNano()))
+		vcCount = runVersionCheckPhase(bin, templatesPath, resultFile, vcResultFile, targets, *targetURL, *targetsFile, *inputMode)
+
+		if vcCount > 0 {
+			mergeResults(resultFile, vcResultFile)
+		}
+		os.Remove(vcResultFile)
+
+		fmt.Printf("[smartchain] phase 2.6 complete: %d findings in %s\n", vcCount, time.Since(vcStart))
+	}
+
 	// === Phase 3: Native workflows ===
 	wfCount := 0
 	if *runWorkflows {
@@ -360,9 +378,9 @@ Examples:
 		}
 	}
 
-	totalFindings := phase2Count + dastCount + wfCount
+	totalFindings := phase2Count + dastCount + vcCount + wfCount
 	fmt.Println()
-	fmt.Printf("[smartchain] total findings: %d (phase2=%d + dast=%d + workflows=%d)\n", totalFindings, phase2Count, dastCount, wfCount)
+	fmt.Printf("[smartchain] total findings: %d (phase2=%d + dast=%d + versioncheck=%d + workflows=%d)\n", totalFindings, phase2Count, dastCount, vcCount, wfCount)
 	fmt.Print(chainer.Summary())
 
 	if *outputJSON == "" {
@@ -372,6 +390,119 @@ Examples:
 	} else {
 		fmt.Printf("[smartchain] results written to %s\n", *outputJSON)
 	}
+}
+
+// runVersionCheckPhase parses existing results for version findings,
+// then checks detected versions against known-safe versions from distro
+// security trackers to identify potentially vulnerable software.
+func runVersionCheckPhase(bin, templatesPath, resultFile, outputFile string, targets []string, targetURL, targetsFile, inputMode string) int {
+	// Read existing results and extract version findings
+	resultData, err := os.ReadFile(resultFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[smartchain] phase 2.6: could not read results: %s\n", err)
+		return 0
+	}
+
+	type versionFinding struct {
+		Host       string   `json:"host"`
+		TemplateID string   `json:"template-id"`
+		Extracted  []string `json:"extracted-results"`
+		Info       struct {
+			Name string   `json:"name"`
+			Tags []string `json:"tags"`
+		} `json:"info"`
+	}
+
+	var findings []versionFinding
+	for _, line := range strings.Split(string(resultData), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var f versionFinding
+		if err := json.Unmarshal([]byte(line), &f); err != nil {
+			continue
+		}
+		if len(f.Extracted) > 0 {
+			findings = append(findings, f)
+		}
+	}
+
+	if len(findings) == 0 {
+		fmt.Println("[smartchain] phase 2.6: no version findings to check")
+		return 0
+	}
+
+	fmt.Printf("[smartchain] phase 2.6: checking %d version findings against distro security trackers...\n", len(findings))
+
+	// Use the intelligence package's VersionChecker
+	vc := intelligence.NewVersionChecker()
+
+	out, err := os.Create(outputFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[smartchain] phase 2.6: could not create output: %s\n", err)
+		return 0
+	}
+	defer out.Close()
+
+	count := 0
+	for _, f := range findings {
+		version := strings.Join(f.Extracted, "")
+		if version == "" {
+			continue
+		}
+
+		// Extract product name from tags
+		product := ""
+		for _, tag := range f.Info.Tags {
+			if tag != "tech" && tag != "eol" && tag != "discovery" && tag != "version" && tag != "fingerprint" {
+				product = tag
+				break
+			}
+		}
+		if product == "" {
+			parts := strings.Split(f.TemplateID, "-")
+			if len(parts) > 0 {
+				product = parts[0]
+			}
+		}
+
+		// Check against all distros
+		distros := []string{"debian", "ubuntu", "rhel"}
+		for _, distro := range distros {
+			result := vc.CheckBelowSafeVersion(version, distro, product)
+			if result.Vulnerable {
+				finding := map[string]interface{}{
+					"template-id": "versioncheck-" + product,
+					"template":    "versioncheck/" + product,
+					"info": map[string]interface{}{
+						"name":     fmt.Sprintf("%s %s may be vulnerable (below %s safe version on %s)", product, version, result.Reason, distro),
+						"severity": "medium",
+						"tags":     []string{"versioncheck", product, distro},
+					},
+					"type":              "http",
+					"host":              f.Host,
+					"matched-at":        f.Host,
+					"extracted-results": f.Extracted,
+					"versioncheck": map[string]interface{}{
+						"product":   product,
+						"version":   version,
+						"distro":    distro,
+						"reason":    result.Reason,
+						"confidence": result.Confidence,
+					},
+					"timestamp": time.Now().Format(time.RFC3339),
+				}
+				jsonBytes, _ := json.Marshal(finding)
+				out.Write(jsonBytes)
+				out.Write([]byte("\n"))
+				count++
+				break // one finding per product is enough
+			}
+		}
+	}
+
+	return count
 }
 
 // matchWorkflows finds workflow YAML files that match detected technologies

@@ -218,3 +218,52 @@ func ExtractVersionFromBody(body string, versionRegex string) string {
 	}
 	return ""
 }
+
+// CheckBelowSafeVersion checks if a detected version is below the known safe
+// version for a product on a given distro. This is useful when no CVE ranges
+// are available — it flags any version older than the distro's patched version.
+func (vc *VersionChecker) CheckBelowSafeVersion(detected, distro, product string) VersionCheckResult {
+	result := VersionCheckResult{
+		CVEID:      "",
+		Detected:   detected,
+		Confidence: 0.5,
+	}
+
+	if detected == "" {
+		result.Reason = "no version detected"
+		return result
+	}
+
+	parsedDetected, err := versionutil.Parse(detected)
+	if err != nil {
+		result.Reason = fmt.Sprintf("unparseable version '%s': %v", detected, err)
+		return result
+	}
+
+	if fixes, ok := vc.distroFixTracker[distro]; ok {
+		if fixedVersion, ok := fixes[strings.ToLower(product)]; ok {
+			parsedFixed, err := versionutil.Parse(fixedVersion)
+			if err != nil {
+				result.Reason = fmt.Sprintf("could not parse safe version '%s': %v", fixedVersion, err)
+				return result
+			}
+			detectedUpstream := &versionutil.ParsedVersion{
+				Epoch:    parsedDetected.Epoch,
+				Segments: parsedDetected.Segments,
+			}
+			if versionutil.Compare(detectedUpstream, parsedFixed) < 0 {
+				result.Vulnerable = true
+				result.Confidence = 0.7
+				result.Reason = fmt.Sprintf("version %s is below %s safe version %s on %s", detected, product, fixedVersion, distro)
+				return result
+			}
+			result.Vulnerable = false
+			result.Confidence = 0.8
+			result.Reason = fmt.Sprintf("version %s is at or above %s safe version %s on %s", detected, product, fixedVersion, distro)
+			return result
+		}
+	}
+
+	result.Reason = fmt.Sprintf("no safe version known for %s on %s", product, distro)
+	return result
+}
