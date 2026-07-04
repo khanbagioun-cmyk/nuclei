@@ -41,6 +41,7 @@ import (
 	"github.com/projectdiscovery/nuclei/v3/pkg/catalog/disk"
 	"github.com/projectdiscovery/nuclei/v3/pkg/catalog/loader"
 	"github.com/projectdiscovery/nuclei/v3/pkg/core"
+	"github.com/projectdiscovery/nuclei/v3/pkg/core/profiler"
 	"github.com/projectdiscovery/nuclei/v3/pkg/external/customtemplates"
 	fuzzStats "github.com/projectdiscovery/nuclei/v3/pkg/fuzz/stats"
 	"github.com/projectdiscovery/nuclei/v3/pkg/input"
@@ -101,6 +102,7 @@ type Runner struct {
 	Logger             *gologger.Logger
 
 	honeypotDetector *honeypotdetector.Detector
+	profiler         *profiler.Profiler
 
 	//general purpose temporary directory
 	tmpDir          string
@@ -235,6 +237,22 @@ func New(options *types.Options) (*Runner, error) {
 	if options.EnablePprof {
 		runner.pprofServer = pprofutil.NewPprofServer()
 		runner.pprofServer.Start()
+	}
+
+	if options.EnableProfiler {
+		profCfg := profiler.DefaultConfig()
+		if options.ProfilerAddr != "" {
+			profCfg.ListenAddr = options.ProfilerAddr
+		}
+		profCfg.OutputFile = options.ProfilerReport
+		profCfg.AutoTune = options.ProfilerAutoTune
+		p := profiler.New(profCfg)
+		if err := p.Start(); err != nil {
+			runner.Logger.Warning().Msgf("Failed to start profiler: %s", err)
+		} else {
+			runner.profiler = p
+			runner.Logger.Info().Msgf("Profiler listening on %s", profCfg.ListenAddr)
+		}
 	}
 
 	if options.HttpApiEndpoint != "" {
@@ -482,6 +500,9 @@ func (r *Runner) Close() {
 	if r.pprofServer != nil {
 		r.pprofServer.Stop()
 	}
+	if r.profiler != nil {
+		r.profiler.Stop()
+	}
 	if r.rateLimiter != nil {
 		r.rateLimiter.Stop()
 	}
@@ -667,6 +688,12 @@ func (r *Runner) RunEnumeration() error {
 
 	executorEngine := core.New(r.options)
 	executorEngine.SetExecuterOptions(executorOpts)
+
+	if r.profiler != nil {
+		executorEngine.SetProfiler(func(templateID, templatePath, protocol string, durationNs int64, matched, errored bool) {
+			r.profiler.RecordTemplateExecution(templateID, templatePath, protocol, time.Duration(durationNs), matched, errored)
+		})
+	}
 
 	workflowLoader, err := parsers.NewLoader(executorOpts)
 	if err != nil {

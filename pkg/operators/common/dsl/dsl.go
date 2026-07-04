@@ -118,7 +118,12 @@ func init() {
 		gologger.Debug().Msgf("print_debug value: %s", fmt.Sprint(args...))
 		return nil
 	}
+}
 
+// initHelperFunctions populates the HelperFunctions and FunctionNames maps.
+// Called after all init() functions (including dsl_custom.go) have registered
+// their functions, ensuring custom DSL functions are included.
+func initHelperFunctions() {
 	HelperFunctions = dsl.HelperFunctions()
 	FunctionNames = dsl.GetFunctionNames(HelperFunctions)
 }

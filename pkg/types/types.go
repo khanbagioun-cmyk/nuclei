@@ -307,6 +307,14 @@ type Options struct {
 	ShowMatchLine bool
 	// EnablePprof enables exposing pprof runtime information with a webserver.
 	EnablePprof bool
+	// EnableProfiler enables the custom profiler with per-template/host metrics.
+	EnableProfiler bool
+	// ProfilerAddr is the address for the profiler HTTP server.
+	ProfilerAddr string
+	// ProfilerReport is the file path to write the final profiler JSON report.
+	ProfilerReport string
+	// ProfilerAutoTune enables automatic concurrency/rate-limit tuning based on profiler metrics.
+	ProfilerAutoTune bool
 	// StoreResponse stores received response to output directory
 	StoreResponse bool
 	// StoreResponseDir stores received response to custom directory
@@ -625,6 +633,10 @@ func (options *Options) Copy() *Options {
 		RestrictLocalNetworkAccess:     options.RestrictLocalNetworkAccess,
 		ShowMatchLine:                  options.ShowMatchLine,
 		EnablePprof:                    options.EnablePprof,
+		EnableProfiler:                 options.EnableProfiler,
+		ProfilerAddr:                   options.ProfilerAddr,
+		ProfilerReport:                 options.ProfilerReport,
+		ProfilerAutoTune:               options.ProfilerAutoTune,
 		StoreResponse:                  options.StoreResponse,
 		StoreResponseDir:               options.StoreResponseDir,
 		DisableRedirects:               options.DisableRedirects,

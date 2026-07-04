@@ -218,6 +218,10 @@ func (c *Config) GetNewAdditions() []string {
 // instead of saving resume files in nuclei config directory
 // they are saved in nuclei cache directory
 func (c *Config) GetCacheDir() string {
+	// fork: allow cache dir override via env var for isolation
+	if cacheDir := os.Getenv("NUCLEI_CACHE_DIR"); cacheDir != "" {
+		return cacheDir
+	}
 	return folderutil.AppCacheDirOrDefault(".nuclei-cache", BinaryName)
 }
 

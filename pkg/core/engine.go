@@ -21,6 +21,15 @@ type Engine struct {
 	executerOpts *protocols.ExecutorOptions
 	Callback     func(*output.ResultEvent) // Executed on results
 	Logger       *gologger.Logger
+	profiler     ProfilerHook
+}
+
+// ProfilerHook is called after each template execution to record timing metrics.
+type ProfilerHook func(templateID, templatePath, protocol string, durationNs int64, matched, errored bool)
+
+// SetProfiler registers a profiler hook that gets called after each template execution.
+func (e *Engine) SetProfiler(hook ProfilerHook) {
+	e.profiler = hook
 }
 
 // New returns a new Engine instance

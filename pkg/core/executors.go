@@ -249,20 +249,37 @@ func (e *Engine) executeTemplateOnInput(ctx context.Context, template *templates
 	ctxArgs.MetaInput = value
 	scanCtx := scan.NewScanContext(ctx, ctxArgs)
 
+	var start time.Time
+	if e.profiler != nil {
+		start = time.Now()
+	}
+
 	switch template.Type() {
 	case types.WorkflowProtocol:
-		return e.executeWorkflow(scanCtx, template.CompiledWorkflow), nil
+		match := e.executeWorkflow(scanCtx, template.CompiledWorkflow)
+		if e.profiler != nil {
+			e.profiler(template.ID, template.Path, template.Type().String(), time.Since(start).Nanoseconds(), match, false)
+		}
+		return match, nil
 	default:
 		if e.Callback != nil {
 			results, err := template.Executer.ExecuteWithResults(scanCtx)
+			matched := len(results) > 0
+			if e.profiler != nil {
+				e.profiler(template.ID, template.Path, template.Type().String(), time.Since(start).Nanoseconds(), matched, err != nil)
+			}
 			if err != nil {
 				return false, err
 			}
 			for _, result := range results {
 				e.Callback(result)
 			}
-			return len(results) > 0, nil
+			return matched, nil
 		}
-		return template.Executer.Execute(scanCtx)
+		match, err := template.Executer.Execute(scanCtx)
+		if e.profiler != nil {
+			e.profiler(template.ID, template.Path, template.Type().String(), time.Since(start).Nanoseconds(), match, err != nil)
+		}
+		return match, err
 	}
 }

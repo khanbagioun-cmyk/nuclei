@@ -20,6 +20,7 @@ import (
 	"github.com/projectdiscovery/nuclei/v3/pkg/reporting/exporters/pdf"
 	"github.com/projectdiscovery/nuclei/v3/pkg/reporting/exporters/sarif"
 	"github.com/projectdiscovery/nuclei/v3/pkg/reporting/exporters/splunk"
+	"github.com/projectdiscovery/nuclei/v3/pkg/reporting/exporters/webhook"
 	"github.com/projectdiscovery/nuclei/v3/pkg/reporting/trackers/filters"
 	"github.com/projectdiscovery/nuclei/v3/pkg/reporting/trackers/gitea"
 	"github.com/projectdiscovery/nuclei/v3/pkg/reporting/trackers/github"
@@ -176,6 +177,14 @@ func New(options *Options, db string, doNotDedupe bool) (Client, error) {
 	}
 	if options.MongoDBExporter != nil {
 		exporter, err := mongo.New(options.MongoDBExporter)
+		if err != nil {
+			return nil, errkit.Wrapf(err, "could not create export client: %v", ErrExportClientCreation)
+		}
+		client.exporters = append(client.exporters, exporter)
+	}
+	if options.WebhookExporter != nil {
+		options.WebhookExporter.HttpClient = options.HttpClient
+		exporter, err := webhook.New(options.WebhookExporter)
 		if err != nil {
 			return nil, errkit.Wrapf(err, "could not create export client: %v", ErrExportClientCreation)
 		}
