@@ -188,6 +188,12 @@ func (e *TemplateExecuter) Execute(ctx *scan.ScanContext) (bool, error) {
 			} else {
 				lastMatcherEvent = event
 			}
+			// Feed findings to correlation engine for cross-phase boosting
+			if e.options.CorrelationEngine != nil && wr {
+				for _, result := range event.Results {
+					e.options.CorrelationEngine.Observe(result, e.options.Output, e.options.Progress)
+				}
+			}
 		}
 	}
 	var errx error

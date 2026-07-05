@@ -4,8 +4,14 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/projectdiscovery/gologger"
+	"github.com/projectdiscovery/nuclei/v3/pkg/model"
+	"github.com/projectdiscovery/nuclei/v3/pkg/model/types/severity"
+	stringslicetype "github.com/projectdiscovery/nuclei/v3/pkg/model/types/stringslice"
 	"github.com/projectdiscovery/nuclei/v3/pkg/output"
+	"github.com/projectdiscovery/nuclei/v3/pkg/progress"
 )
 
 // CorrelationRule defines a cross-phase correlation.
@@ -56,14 +62,19 @@ type FindingLink struct {
 
 // Engine correlates findings across phases.
 type Engine struct {
-	rules []CorrelationRule
-	mu    sync.RWMutex
+	rules   []CorrelationRule
+	mu      sync.RWMutex
+	// findings stores all observed findings for cross-correlation
+	findings []*output.ResultEvent
+	// boosted tracks templateID+host pairs already boosted to avoid duplicates
+	boosted map[string]bool
 }
 
 // NewEngine creates a correlation engine with default rules.
 func NewEngine() *Engine {
 	return &Engine{
-		rules: defaultRules(),
+		rules:    defaultRules(),
+		boosted:  make(map[string]bool),
 	}
 }
 
@@ -227,4 +238,176 @@ func defaultRules() []CorrelationRule {
 func (r CorrelationResult) Summary() string {
 	return fmt.Sprintf("Correlations: %d links, %d boosted, %d deduped",
 		len(r.Links), r.Boosted, r.Deduped)
+}
+
+// Observe processes a new finding in real-time, checking it against all
+// correlation rules. If a correlation fires, emits a boosted/linked finding
+// via the output writer.
+func (e *Engine) Observe(finding *output.ResultEvent, out output.Writer, progress progress.Progress) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.findings = append(e.findings, finding)
+
+	// Check all rules against this new finding
+	for _, rule := range e.rules {
+		// Case 1: new finding matches Source → check if any existing finding matches Target
+		if matchFinding(finding, rule.Source) {
+			for _, existing := range e.findings {
+				if existing == finding {
+					continue
+				}
+				if !matchFinding(existing, rule.Target) {
+					continue
+				}
+				if !sameHost(finding, existing) {
+					continue
+				}
+				e.applyAction(rule, finding, existing, out, progress)
+			}
+		}
+
+		// Case 2: new finding matches Target → check if any existing finding matches Source
+		if matchFinding(finding, rule.Target) {
+			for _, existing := range e.findings {
+				if existing == finding {
+					continue
+				}
+				if !matchFinding(existing, rule.Source) {
+					continue
+				}
+				if !sameHost(finding, existing) {
+					continue
+				}
+				e.applyAction(rule, existing, finding, out, progress)
+			}
+		}
+	}
+}
+
+// GetFindings returns all observed findings (for summary/reporting).
+func (e *Engine) GetFindings() []*output.ResultEvent {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.findings
+}
+
+// GetBoostedCount returns the number of boosted findings.
+func (e *Engine) GetBoostedCount() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return len(e.boosted)
+}
+
+// applyAction executes the correlation action (boost, link, dedup).
+func (e *Engine) applyAction(rule CorrelationRule, source, target *output.ResultEvent, out output.Writer, progress progress.Progress) {
+	boostKey := fmt.Sprintf("%s|%s|%s", rule.ID, target.TemplateID, target.Host)
+
+	switch rule.Action {
+	case ActionBoost:
+		if e.boosted[boostKey] {
+			return // already boosted this finding
+		}
+		e.boosted[boostKey] = true
+
+		// Emit a boosted finding with elevated severity
+		boosted := cloneFinding(target)
+		boosted.TemplateID = "correlation-boost"
+		boosted.MatcherName = "correlated-boost"
+		boosted.Info = model.Info{
+			Name:        "Correlated Finding (Boosted)",
+			Authors:     stringslicetype.New("nuclei-dev"),
+			Description: fmt.Sprintf("%s → boosted by %s", target.TemplateID, rule.Description),
+			SeverityHolder: severity.Holder{
+				Severity: bumpSeverity(target.Info.SeverityHolder.Severity),
+			},
+			Tags: stringslicetype.New("correlation,boosted"),
+		}
+		boosted.Metadata = map[string]interface{}{
+			"correlation_rule":   rule.ID,
+			"correlation_source": source.TemplateID,
+			"correlation_reason": rule.Description,
+			"original_severity":  target.Info.SeverityHolder.Severity.String(),
+		}
+		boosted.Timestamp = time.Now()
+
+		if out != nil {
+			if err := out.Write(boosted); err != nil {
+				gologger.Warning().Msgf("Could not write correlation finding: %s", err)
+			}
+		}
+		if progress != nil {
+			progress.IncrementMatched()
+		}
+		gologger.Info().Msgf("[correlation] %s: %s boosted by %s on %s",
+			rule.ID, target.TemplateID, source.TemplateID, target.Host)
+
+	case ActionLink:
+		if e.boosted[boostKey] {
+			return
+		}
+		e.boosted[boostKey] = true
+
+		// Emit a link finding
+		link := cloneFinding(target)
+		link.TemplateID = "correlation-link"
+		link.MatcherName = "correlated-link"
+		link.Info = model.Info{
+			Name:        "Correlated Finding (Linked)",
+			Authors:     stringslicetype.New("nuclei-dev"),
+			Description: fmt.Sprintf("%s linked with %s: %s", target.TemplateID, source.TemplateID, rule.Description),
+			SeverityHolder: severity.Holder{
+				Severity: target.Info.SeverityHolder.Severity,
+			},
+			Tags: stringslicetype.New("correlation,linked"),
+		}
+		link.Metadata = map[string]interface{}{
+			"correlation_rule":       rule.ID,
+			"correlation_source":     source.TemplateID,
+			"correlation_source_host": source.Host,
+			"correlation_reason":     rule.Description,
+		}
+		link.Timestamp = time.Now()
+
+		if out != nil {
+			if err := out.Write(link); err != nil {
+				gologger.Warning().Msgf("Could not write correlation link: %s", err)
+			}
+		}
+		if progress != nil {
+			progress.IncrementMatched()
+		}
+		gologger.Info().Msgf("[correlation] %s: %s linked with %s on %s",
+			rule.ID, target.TemplateID, source.TemplateID, target.Host)
+	}
+}
+
+// cloneFinding creates a shallow copy of a ResultEvent for correlation output.
+func cloneFinding(src *output.ResultEvent) *output.ResultEvent {
+	dst := *src
+	return &dst
+}
+
+// sameHost checks if two findings are on the same host.
+func sameHost(a, b *output.ResultEvent) bool {
+	if a.Host == "" || b.Host == "" {
+		return true // empty host = match any
+	}
+	return strings.EqualFold(a.Host, b.Host)
+}
+
+// bumpSeverity increases severity by one level.
+func bumpSeverity(s severity.Severity) severity.Severity {
+	switch s {
+	case severity.Info:
+		return severity.Low
+	case severity.Low:
+		return severity.Medium
+	case severity.Medium:
+		return severity.High
+	case severity.High:
+		return severity.Critical
+	default:
+		return s
+	}
 }

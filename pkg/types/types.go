@@ -195,6 +195,10 @@ type Options struct {
 	// JavaScript responses. When enabled, JS content-type responses are parsed
 	// for API paths, parameters, and hardcoded secrets (API keys, tokens, etc.)
 	JSExtract bool
+	// Correlate enables cross-phase finding correlation. When enabled, findings
+	// are correlated (tech→CVE, exposure→exploit, default-login→auth) and
+	// boosted/linked findings are emitted.
+	Correlate bool
 	// UseInstalledChrome skips chrome install and use local instance
 	UseInstalledChrome bool
 	// SystemResolvers enables override of nuclei's DNS client opting to use system resolver stack.

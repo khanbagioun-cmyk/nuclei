@@ -51,6 +51,13 @@ func (request *Request) processJSExtraction(bodyStr, sourceURL string, callback 
 		return
 	}
 
+	// Collect endpoints for potential re-scanning
+	if request.options.JSEndpointCollector != nil {
+		for _, ep := range result.Endpoints {
+			request.options.JSEndpointCollector.AddEndpoint(sourceURL, ep.Path)
+		}
+	}
+
 	for _, ep := range result.Endpoints {
 		info := model.Info{
 			Name:        "JS Endpoint Extraction",

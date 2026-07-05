@@ -40,6 +40,7 @@ import (
 	"github.com/projectdiscovery/nuclei/v3/pkg/catalog/config"
 	"github.com/projectdiscovery/nuclei/v3/pkg/catalog/disk"
 	"github.com/projectdiscovery/nuclei/v3/pkg/catalog/loader"
+	"github.com/projectdiscovery/nuclei/v3/pkg/correlation"
 	"github.com/projectdiscovery/nuclei/v3/pkg/core"
 	"github.com/projectdiscovery/nuclei/v3/pkg/core/profiler"
 	"github.com/projectdiscovery/nuclei/v3/pkg/external/customtemplates"
@@ -458,6 +459,17 @@ func (r *Runner) Close() {
 	if r.options.ClusterReport && r.executorOpts != nil && r.executorOpts.ClusterReport != nil {
 		r.executorOpts.ClusterReport.Display(r.options.NoColor)
 	}
+	if r.options.Correlate && r.executorOpts != nil && r.executorOpts.CorrelationEngine != nil {
+		boosted := r.executorOpts.CorrelationEngine.GetBoostedCount()
+		findings := len(r.executorOpts.CorrelationEngine.GetFindings())
+		r.Logger.Info().Msgf("Correlation: %d findings observed, %d correlations triggered", findings, boosted)
+	}
+	if r.options.JSExtract && r.executorOpts != nil && r.executorOpts.JSEndpointCollector != nil {
+		count := r.executorOpts.JSEndpointCollector.Count()
+		if count > 0 {
+			r.Logger.Info().Msgf("JS extraction: %d unique endpoints collected for re-scanning", count)
+		}
+	}
 	if newConns, reusedConns := httpclientpool.GetConnectionStats(); newConns+reusedConns > 0 {
 		total := newConns + reusedConns
 		ratio := float64(reusedConns) / float64(total) * 100
@@ -658,7 +670,14 @@ func (r *Runner) RunEnumeration() error {
 	// Initialize JS extractor if --js-extract is enabled
 	if r.options.JSExtract {
 		executorOpts.JSExtractor = jsextract.New()
+		executorOpts.JSEndpointCollector = jsextract.NewEndpointCollector()
 		r.Logger.Info().Msg("JavaScript endpoint/secret extraction enabled")
+	}
+
+	// Initialize correlation engine if --correlate is enabled
+	if r.options.Correlate {
+		executorOpts.CorrelationEngine = correlation.NewEngine()
+		r.Logger.Info().Msg("Cross-phase finding correlation enabled")
 	}
 
 	if len(r.options.SecretsFile) > 0 && !r.options.Validate {

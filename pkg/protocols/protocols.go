@@ -15,6 +15,7 @@ import (
 
 	"github.com/projectdiscovery/nuclei/v3/pkg/authprovider"
 	"github.com/projectdiscovery/nuclei/v3/pkg/catalog"
+	"github.com/projectdiscovery/nuclei/v3/pkg/correlation"
 	"github.com/projectdiscovery/nuclei/v3/pkg/fuzz/frequency"
 	"github.com/projectdiscovery/nuclei/v3/pkg/fuzz/stats"
 	"github.com/projectdiscovery/nuclei/v3/pkg/input"
@@ -159,6 +160,13 @@ type ExecutorOptions struct {
 	// JSExtractor parses JavaScript responses for hidden endpoints and secrets
 	// when --js-extract is enabled. Nil when feature is disabled.
 	JSExtractor *jsextract.Extractor
+	// JSEndpointCollector collects endpoints discovered by JS extraction
+	// for potential re-scanning by the multi-phase engine.
+	JSEndpointCollector *jsextract.EndpointCollector
+	// CorrelationEngine correlates findings across phases (tech→CVE, exposure→exploit, etc.)
+	// When enabled, observes each finding and emits boosted/linked findings.
+	// Nil when feature is disabled.
+	CorrelationEngine *correlation.Engine
 }
 
 // todo: centralizing components is not feasible with current clogged architecture
@@ -341,6 +349,8 @@ func (e *ExecutorOptions) Copy() *ExecutorOptions {
 		GlobalMatchers:               e.GlobalMatchers,
 		Logger:                       e.Logger,
 		JSExtractor:                  e.JSExtractor,
+		JSEndpointCollector:          e.JSEndpointCollector,
+		CorrelationEngine:            e.CorrelationEngine,
 	}
 	copy.ClusterMappings = e.ClusterMappings.Copy()
 	copy.ClusterReport = e.ClusterReport // shallow copy — write-once snapshot
