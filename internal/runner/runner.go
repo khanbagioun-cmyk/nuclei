@@ -45,6 +45,7 @@ import (
 	"github.com/projectdiscovery/nuclei/v3/pkg/external/customtemplates"
 	fuzzStats "github.com/projectdiscovery/nuclei/v3/pkg/fuzz/stats"
 	"github.com/projectdiscovery/nuclei/v3/pkg/input"
+	"github.com/projectdiscovery/nuclei/v3/pkg/jsextract"
 	parsers "github.com/projectdiscovery/nuclei/v3/pkg/loader/workflow"
 	"github.com/projectdiscovery/nuclei/v3/pkg/output"
 	"github.com/projectdiscovery/nuclei/v3/pkg/progress"
@@ -650,8 +651,14 @@ func (r *Runner) RunEnumeration() error {
 	}
 
 	if config.DefaultConfig.IsDebugArgEnabled(config.DebugExportURLPattern) {
-		// Go StdLib style experimental/debug feature switch
+		// GoStdLib style experimental/debug feature switch
 		executorOpts.ExportReqURLPattern = true
+	}
+
+	// Initialize JS extractor if --js-extract is enabled
+	if r.options.JSExtract {
+		executorOpts.JSExtractor = jsextract.New()
+		r.Logger.Info().Msg("JavaScript endpoint/secret extraction enabled")
 	}
 
 	if len(r.options.SecretsFile) > 0 && !r.options.Validate {

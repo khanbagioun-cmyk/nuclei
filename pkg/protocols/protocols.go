@@ -19,6 +19,7 @@ import (
 	"github.com/projectdiscovery/nuclei/v3/pkg/fuzz/stats"
 	"github.com/projectdiscovery/nuclei/v3/pkg/input"
 	"github.com/projectdiscovery/nuclei/v3/pkg/js/compiler"
+	"github.com/projectdiscovery/nuclei/v3/pkg/jsextract"
 	"github.com/projectdiscovery/nuclei/v3/pkg/loader/parser"
 	"github.com/projectdiscovery/nuclei/v3/pkg/model"
 	"github.com/projectdiscovery/nuclei/v3/pkg/operators"
@@ -155,6 +156,9 @@ type ExecutorOptions struct {
 	ClusterMappings *templateTypes.ClusterMappingsMap
 	// ClusterReport holds clustering efficiency statistics (populated post-execution)
 	ClusterReport *templateTypes.ClusterReport
+	// JSExtractor parses JavaScript responses for hidden endpoints and secrets
+	// when --js-extract is enabled. Nil when feature is disabled.
+	JSExtractor *jsextract.Extractor
 }
 
 // todo: centralizing components is not feasible with current clogged architecture
@@ -336,6 +340,7 @@ func (e *ExecutorOptions) Copy() *ExecutorOptions {
 		ExportReqURLPattern:          e.ExportReqURLPattern,
 		GlobalMatchers:               e.GlobalMatchers,
 		Logger:                       e.Logger,
+		JSExtractor:                  e.JSExtractor,
 	}
 	copy.ClusterMappings = e.ClusterMappings.Copy()
 	copy.ClusterReport = e.ClusterReport // shallow copy — write-once snapshot

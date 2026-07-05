@@ -1174,6 +1174,11 @@ func (request *Request) executeRequest(input *contextargs.Context, generatedRequ
 
 		callback(event)
 
+		// JS extraction: parse JavaScript responses for endpoints and secrets
+		if request.options.JSExtractor != nil && isJavaScriptResponse(responseContentType) {
+			request.processJSExtraction(bodyStr, formedURL, callback)
+		}
+
 		if request.options.FuzzStatsDB != nil && generatedRequest.fuzzGeneratedRequest.Request != nil {
 			request.options.FuzzStatsDB.RecordResultEvent(fuzzStats.FuzzingEvent{
 				URL:           input.MetaInput.Target(),

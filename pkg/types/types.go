@@ -191,6 +191,10 @@ type Options struct {
 	DisableClustering bool
 	// ClusterReport enables cluster efficiency statistics display at end of scan
 	ClusterReport bool
+	// JSExtract enables automatic extraction of endpoints and secrets from
+	// JavaScript responses. When enabled, JS content-type responses are parsed
+	// for API paths, parameters, and hardcoded secrets (API keys, tokens, etc.)
+	JSExtract bool
 	// UseInstalledChrome skips chrome install and use local instance
 	UseInstalledChrome bool
 	// SystemResolvers enables override of nuclei's DNS client opting to use system resolver stack.
