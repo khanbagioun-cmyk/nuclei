@@ -222,10 +222,16 @@ func compileSecretPatterns() map[string]*regexp.Regexp {
 		"aws_secret":     `(?i)aws[_-]?secret[_-]?access[_-]?key["'\s:=]+["']([a-zA-Z0-9/+=]{40})["']`,
 		"private_key":    `(-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)`,
 		"jwt":            `(eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,})`,
-		"slack_token":    `xox[baprs]-[a-zA-Z0-9-]{10,}`,
-		"google_api":     `AIza[0-9A-Za-z\-_]{35}`,
-		"stripe_key":     `sk_(?:live|test)_[a-zA-Z0-9]{24,}`,
-		"github_token":   `gh[pousr]_[A-Za-z0-9]{36}`,
+		"slack_token":    `(xox[baprs]-[a-zA-Z0-9-]{10,})`,
+		"google_api":     `(AIza[0-9A-Za-z\-_]{35})`,
+		"stripe_key":     `(sk_(?:live|test)_[a-zA-Z0-9]{24,})`,
+		"github_token":   `(gh[pousr]_[A-Za-z0-9]{36})`,
+		"gitlab_token":   `(glpat-[A-Za-z0-9_-]{20})`,
+		"sendgrid_key":   `(SG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,})`,
+		"twilio_key":     `(SK[0-9a-fA-F]{32})`,
+		"discord_token":  `(?i)(?:discord|bot)[_\-]?token["'\s:=]+["']([A-Za-z0-9._-]{50,})["']`,
+		"firebase_url":   `(https://[a-z0-9-]+\.firebaseio\.com)`,
+		"oauth_client":   `(?i)client[_-]?secret["'\s:=]+["']([a-zA-Z0-9_\-]{24,})["']`,
 	}
 	compiled := make(map[string]*regexp.Regexp)
 	for name, p := range patterns {
