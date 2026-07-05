@@ -1005,15 +1005,20 @@ func (r *Runner) RunEnumeration() error {
 	enumeration := false
 	var results *atomic.Bool
 
-	// Multi-phase scan: run tech detection first, then use results to guide vuln scan
+	// Multi-phase scan: run tech detection first, then use results to guide vuln scan.
+	// When -mph is enabled, multi-phase IS the scan — skip standard enumeration.
 	if r.options.MultiPhase {
 		if mpErr := r.runMultiPhaseEnumeration(executorOpts, store, executorEngine); mpErr != nil {
 			r.Logger.Error().Msgf("multi-phase scan error: %v", mpErr)
 		}
+		enumeration = true
+		// Create a dummy results atomic.Bool for downstream checks
+		results = &atomic.Bool{}
+		results.Store(true)
+	} else {
+		results, err = r.runStandardEnumeration(executorOpts, store, executorEngine)
+		enumeration = true
 	}
-
-	results, err = r.runStandardEnumeration(executorOpts, store, executorEngine)
-	enumeration = true
 
 	if !enumeration {
 		return err
