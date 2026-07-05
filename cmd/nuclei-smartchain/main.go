@@ -33,6 +33,7 @@ func main() {
 	runWorkflows := flag.Bool("workflows", true, "run native nuclei workflows after phase 2 (conditional template chaining)")
 	runDast := flag.Bool("dast", true, "run DAST community templates (phase 2.5)")
 	runVersionCheck := flag.Bool("version-check", true, "run version-based CVE check (phase 2.6)")
+	followRedirects := flag.Bool("fr", true, "follow HTTP redirects (enables scope:final-only template feature; default true)")
 	profileName := flag.String("profile", "", "use a built-in scan profile (e.g., critical-cve-sweep, quick-kev-sweep, full-exposure-audit, wordpress-deep, tech-discovery-only, dast-injection)")
 	listProfiles := flag.Bool("list-profiles", false, "list available built-in scan profiles")
 	help := flag.Bool("h", false, "show help")
@@ -174,6 +175,7 @@ Examples:
 			"-tags", "tech-detect,tech,fingerprint",
 			"-c", fmt.Sprintf("%d", *concurrency),
 		}
+		args = maybeAddRedirectFlag(args, *followRedirects)
 		args = append(args, buildTargetArgs(targets, *targetURL, *targetsFile, *inputMode)...)
 		if _, err := os.Stat(templatesPath); err == nil {
 			args = append(args, "-t", templatesPath)
@@ -255,6 +257,7 @@ Examples:
 		"-tags", strings.Join(phase2Tags, ","),
 		"-c", fmt.Sprintf("%d", *concurrency),
 	}
+	args = maybeAddRedirectFlag(args, *followRedirects)
 	if *severity != "" {
 		args = append(args, "-severity", *severity)
 	}
@@ -294,6 +297,7 @@ Examples:
 				"-dast",
 				"-t", dastDir,
 			}
+			dastArgs = maybeAddRedirectFlag(dastArgs, *followRedirects)
 			dastArgs = append(dastArgs, buildTargetArgs(targets, *targetURL, *targetsFile, *inputMode)...)
 
 			dastCtx, dastCancel := context.WithTimeout(context.Background(), *timeout)
@@ -350,6 +354,7 @@ Examples:
 				"-jsonl", "-o", wfResultFile, "-nc",
 				"-c", fmt.Sprintf("%d", *concurrency),
 			}
+			wfArgs = maybeAddRedirectFlag(wfArgs, *followRedirects)
 			for _, wf := range matchedWorkflows {
 				wfArgs = append(wfArgs, "-w", wf)
 			}
@@ -648,6 +653,15 @@ func buildTargetArgs(targets []string, targetURL string, targetsFile string, inp
 	var args []string
 	for _, t := range targets {
 		args = append(args, "-u", t)
+	}
+	return args
+}
+
+// maybeAddRedirectFlag appends -fr to args if followRedirects is true.
+// This enables the scope:final-only template feature for redirect-chain matching.
+func maybeAddRedirectFlag(args []string, followRedirects bool) []string {
+	if followRedirects {
+		return append(args, "-fr")
 	}
 	return args
 }

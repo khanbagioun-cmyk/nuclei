@@ -1,5 +1,33 @@
 package main
 
+// nuclei-scopetag: Auto-tags redirect-prone templates with scope:final-only.
+//
+// Background:
+// Nuclei's HTTP response chain processes responses in reverse order (final
+// response first, then redirect responses via Previous()). By default, matchers
+// evaluate against ALL responses in the chain (scope:all). This causes false
+// positives when a matcher word like "admin" or "login" appears in a 302
+// redirect's headers (e.g., Location: /admin-redirect).
+//
+// The scope:final-only field (implemented in pkg/operators/matchers/matchers.go)
+// restricts matcher evaluation to only the final (non-redirect) response,
+// eliminating redirect-chain FPs.
+//
+// Body vs Header behavior:
+// Nuclei's ResponseChain.Fill() intentionally skips loading redirect response
+// bodies (per RFC 7231: redirects happen with empty body). This means body-based
+// matchers on redirect responses already won't match — scope:final-only is
+// primarily effective for HEADER-based matchers. However, body matchers are
+// still tagged because:
+//   1. Future nuclei versions may load redirect bodies (custom transports)
+//   2. Defense-in-depth: explicit scope is safer than relying on engine behavior
+//   3. Some redirect responses DO have bodies (non-RFC-compliant servers)
+//
+// Usage:
+//   nuclei-scopetag -t ~/.local/nuclei-templates-dev -dry-run    # preview
+//   nuclei-scopetag -t ~/.local/nuclei-templates-dev             # apply
+//   nuclei-scopetag -t ~/.local/nuclei-templates-dev -v          # verbose
+
 import (
 	"bytes"
 	"flag"
