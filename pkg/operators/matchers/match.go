@@ -54,6 +54,9 @@ func (matcher *Matcher) MatchSize(length int) bool {
 
 // MatchWords matches a word check against a corpus.
 func (matcher *Matcher) MatchWords(corpus string, data map[string]interface{}) (bool, []string) {
+	if matcher.HasContext() {
+		corpus = matcher.GetContextCorpus(corpus)
+	}
 	if matcher.CaseInsensitive {
 		corpus = strings.ToLower(corpus)
 	}
@@ -105,6 +108,9 @@ func (matcher *Matcher) MatchWords(corpus string, data map[string]interface{}) (
 
 // MatchRegex matches a regex check against a corpus
 func (matcher *Matcher) MatchRegex(corpus string) (bool, []string) {
+	if matcher.HasContext() {
+		corpus = matcher.GetContextCorpus(corpus)
+	}
 	var matchedRegexes []string
 	// Iterate over all the regexes accepted as valid
 	for i, regex := range matcher.regexCompiled {

@@ -136,6 +136,7 @@ func New(ctx context.Context, cfg Config) (*MultiPhaseEngine, error) {
 			}
 		}
 	})
+	// Use AddResultCallback for any additional callbacks (not replacing the one above)
 
 	return mpe, nil
 }

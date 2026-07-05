@@ -288,6 +288,76 @@ func getTextContent(n *html.Node) string {
 	return sb.String()
 }
 
+// Extract returns the sub-corpus text at the given context path/pattern.
+// Unlike Match, it does not check for a specific word — it returns the
+// full text content at the context location, which can then be passed
+// to word/regex matchers for scoped matching.
+//
+// Returns (extractedText, true) if the context resolved to content,
+// ("", false) if the context could not be resolved.
+func (cm *ContextMatcher) Extract(content string) (string, bool) {
+	switch cm.Type {
+	case ContextJSONPath:
+		return cm.extractJSONPath(content)
+	case ContextHTMLSelector:
+		return cm.extractHTMLSelector(content)
+	case ContextRegex:
+		return cm.extractRegexContext(content)
+	}
+	return content, false
+}
+
+// extractJSONPath returns the string value at the given JSON path.
+func (cm *ContextMatcher) extractJSONPath(content string) (string, bool) {
+	var data interface{}
+	if err := json.Unmarshal([]byte(content), &data); err != nil {
+		return "", false
+	}
+	value := getJSONPath(data, cm.Pattern)
+	if value == nil {
+		return "", false
+	}
+	return fmt.Sprintf("%v", value), true
+}
+
+// extractHTMLSelector returns concatenated text content of all elements
+// matching the CSS selector.
+func (cm *ContextMatcher) extractHTMLSelector(content string) (string, bool) {
+	doc, err := html.Parse(strings.NewReader(content))
+	if err != nil {
+		return "", false
+	}
+	var sb strings.Builder
+	found := false
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && matchesSelector(n, cm.Pattern) {
+			sb.WriteString(getTextContent(n))
+			sb.WriteString(" ")
+			found = true
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return sb.String(), found
+}
+
+// extractRegexContext returns the text matched by the regex.
+// If the regex has a capture group, returns group 1; otherwise returns full match.
+func (cm *ContextMatcher) extractRegexContext(content string) (string, bool) {
+	pat, err := regexp.Compile(cm.Pattern)
+	if err != nil {
+		return "", false
+	}
+	matches := pat.FindAllString(content, -1)
+	if len(matches) == 0 {
+		return "", false
+	}
+	return strings.Join(matches, " "), true
+}
+
 // ParseContextType converts a string to ContextType.
 func ParseContextType(s string) ContextType {
 	switch strings.ToLower(s) {

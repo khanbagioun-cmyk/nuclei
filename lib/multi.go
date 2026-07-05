@@ -51,15 +51,22 @@ func createEphemeralObjects(ctx context.Context, base *NucleiEngine, opts *types
 	if opts.RateLimit > 0 && opts.RateLimitDuration == 0 {
 		opts.RateLimitDuration = time.Second
 	}
-	u.executerOpts.RateLimiter = utils.GetRateLimiter(ctx, opts.RateLimit, opts.RateLimitDuration)
+	// Only create a per-phase rate limiter if the phase specifies its own rate limit.
+	// Otherwise, reuse the base engine's rate limiter for consistent global rate limiting.
+	if opts.RateLimit > 0 {
+		u.executerOpts.RateLimiter = utils.GetRateLimiter(ctx, opts.RateLimit, opts.RateLimitDuration)
+	} else if base.rateLimiter != nil {
+		u.executerOpts.RateLimiter = base.rateLimiter
+	}
 	u.engine = core.New(opts)
 	u.engine.SetExecuterOptions(u.executerOpts)
 	return u, nil
 }
 
 // closeEphemeralObjects closes all resources used by ephemeral nuclei objects/instances/types
-func closeEphemeralObjects(u *unsafeOptions) {
-	if u.executerOpts.RateLimiter != nil {
+func closeEphemeralObjects(u *unsafeOptions, base *NucleiEngine) {
+	// Only stop the rate limiter if it was created per-phase (not shared from base)
+	if u.executerOpts.RateLimiter != nil && u.executerOpts.RateLimiter != base.rateLimiter {
 		u.executerOpts.RateLimiter.Stop()
 	}
 	// dereference all objects that were inherited from base nuclei engine
@@ -71,6 +78,7 @@ func closeEphemeralObjects(u *unsafeOptions) {
 	u.executerOpts.Progress = nil
 	u.executerOpts.Catalog = nil
 	u.executerOpts.Parser = nil
+	u.executerOpts.RateLimiter = nil
 }
 
 // ThreadSafeNucleiEngine is a tweaked version of nuclei.Engine whose methods are thread-safe
@@ -113,8 +121,20 @@ func (e *ThreadSafeNucleiEngine) GlobalLoadAllTemplates() error {
 }
 
 // GlobalResultCallback sets a callback function which will be called for each result
+// This replaces all existing callbacks. Use AddResultCallback to append.
 func (e *ThreadSafeNucleiEngine) GlobalResultCallback(callback func(event *output.ResultEvent)) {
 	e.eng.resultCallbacks = []func(*output.ResultEvent){callback}
+}
+
+// AddResultCallback appends a callback function to the list of result callbacks.
+// Unlike GlobalResultCallback, this does not replace existing callbacks.
+func (e *ThreadSafeNucleiEngine) AddResultCallback(callback func(event *output.ResultEvent)) {
+	e.eng.resultCallbacks = append(e.eng.resultCallbacks, callback)
+}
+
+// ClearResultCallbacks removes all result callbacks.
+func (e *ThreadSafeNucleiEngine) ClearResultCallbacks() {
+	e.eng.resultCallbacks = nil
 }
 
 // ExecuteNucleiWithOptsCtx executes templates on targets and calls callback on each result(only if results are found)
@@ -136,7 +156,7 @@ func (e *ThreadSafeNucleiEngine) ExecuteNucleiWithOptsCtx(ctx context.Context, t
 		return err
 	}
 	// cleanup and stop all resources
-	defer closeEphemeralObjects(unsafeOpts)
+	defer closeEphemeralObjects(unsafeOpts, e.eng)
 
 	// load templates
 	workflowLoader, err := workflow.NewLoader(unsafeOpts.executerOpts)

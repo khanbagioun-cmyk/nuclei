@@ -149,6 +149,22 @@ type Matcher struct {
 	//   - "final-only"
 	//   - "redirects-only"
 	Scope string `yaml:"scope,omitempty" json:"scope,omitempty" jsonschema:"title=redirect chain scope,description=Which response in redirect chain to match against,enum=all,enum=final-only,enum=redirects-only"`
+	// description: |
+	//   Context restricts word/regex matching to a specific structural context.
+	//   Supports JSONPath ($.user.name), CSS selector (div.error), or regex capture.
+	//   When set, the matcher only looks for words within the matched context,
+	//   eliminating false positives from words appearing in unrelated sections.
+	// examples:
+	//   - value: "\"$.user.role\""
+	//   - value: "\"div.error\""
+	Context string `yaml:"context,omitempty" json:"context,omitempty" jsonschema:"title=structural context for matching,description=Restrict word/regex matching to JSONPath, CSS selector, or regex context"`
+	// description: |
+	//   ContextType specifies the type of context matching to use.
+	// values:
+	//   - "jsonpath"
+	//   - "html"
+	//   - "regex"
+	ContextType string `yaml:"context-type,omitempty" json:"context-type,omitempty" jsonschema:"title=context type,description=Type of context matching,enum=jsonpath,enum=html,enum=regex"`
 
 	// cached data for the compiled matcher
 	condition     ConditionType // todo: this field should be the one used for overridden marshal ops
@@ -258,4 +274,19 @@ func (matcher *Matcher) AppliesToRedirect(isFinal bool) bool {
 		return !isFinal
 	}
 	return true
+}
+
+// HasContext returns true if the matcher has a structural context filter.
+func (matcher *Matcher) HasContext() bool {
+	return matcher.Context != ""
+}
+
+// GetContextCorpus extracts the relevant sub-corpus from the full response text
+// based on the matcher's structural context (JSONPath, CSS selector, or regex).
+// If no context is set, returns the original corpus unchanged.
+func (matcher *Matcher) GetContextCorpus(corpus string) string {
+	if !matcher.HasContext() {
+		return corpus
+	}
+	return ExtractContext(corpus, matcher.Context, matcher.ContextType)
 }
