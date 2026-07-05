@@ -3,6 +3,7 @@ package templatelearn
 import (
 	"encoding/json"
 	"os"
+	"strings"
 )
 
 // StoreData is the JSON-serializable store state
@@ -60,9 +61,20 @@ func (s *FeedbackStore) Load() error {
 
 	s.feedback = make(map[string]*Feedback)
 	s.suppressions = make(map[string]*SuppressionRule)
+	s.fpHostIndex = make(map[string]map[string]bool)
 
 	for _, fb := range data.Feedback {
 		s.feedback[fb.ID] = fb
+		// Rebuild fpHostIndex from FP feedback entries
+		if fb.Type == FeedbackFalsePositive {
+			fpKey := strings.ToLower(fb.TemplateID + "|" + fb.MatcherName)
+			if s.fpHostIndex[fpKey] == nil {
+				s.fpHostIndex[fpKey] = make(map[string]bool)
+			}
+			for _, h := range fb.FPHosts {
+				s.fpHostIndex[fpKey][strings.ToLower(h)] = true
+			}
+		}
 	}
 	for _, rule := range data.Suppressions {
 		s.suppressions[rule.ID] = rule

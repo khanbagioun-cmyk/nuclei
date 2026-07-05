@@ -189,6 +189,8 @@ type Options struct {
 	HeadlessOptionalArguments goflags.StringSlice
 	// DisableClustering disables clustering of templates
 	DisableClustering bool
+	// ClusterReport enables cluster efficiency statistics display at end of scan
+	ClusterReport bool
 	// UseInstalledChrome skips chrome install and use local instance
 	UseInstalledChrome bool
 	// SystemResolvers enables override of nuclei's DNS client opting to use system resolver stack.

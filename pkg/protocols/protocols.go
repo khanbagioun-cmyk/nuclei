@@ -153,6 +153,8 @@ type ExecutorOptions struct {
 	CustomFastdialer *fastdialer.Dialer
 	// ClusterMappings stores cluster ID to template IDs mapping during execution
 	ClusterMappings *templateTypes.ClusterMappingsMap
+	// ClusterReport holds clustering efficiency statistics (populated post-execution)
+	ClusterReport *templateTypes.ClusterReport
 }
 
 // todo: centralizing components is not feasible with current clogged architecture
@@ -336,6 +338,7 @@ func (e *ExecutorOptions) Copy() *ExecutorOptions {
 		Logger:                       e.Logger,
 	}
 	copy.ClusterMappings = e.ClusterMappings.Copy()
+	copy.ClusterReport = e.ClusterReport // shallow copy — write-once snapshot
 	copy.CreateTemplateCtxStore()
 	return copy
 }

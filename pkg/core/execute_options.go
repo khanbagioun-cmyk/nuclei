@@ -55,6 +55,26 @@ func (e *Engine) ExecuteScanWithOpts(ctx context.Context, templatesList []*templ
 
 	if !noCluster && totalReqAfterClustering < totalReqBeforeCluster {
 		e.Logger.Info().Msgf("Templates clustered: %d (Reduced %d Requests)", clusterCount, totalReqBeforeCluster-totalReqAfterClustering)
+		// Populate cluster report for end-of-scan display
+		clustersWithMultiple := 0
+		var mappingsPtr *types.ClusterMappingsMap
+		if e.executerOpts.ClusterMappings != nil {
+			m := e.executerOpts.ClusterMappings.GetAll()
+			for _, temps := range m {
+				if len(temps) > 1 {
+					clustersWithMultiple++
+				}
+			}
+			mappingsPtr = e.executerOpts.ClusterMappings
+		}
+		e.executerOpts.ClusterReport = &types.ClusterReport{
+			TotalTemplates:     len(templatesList),
+			ClusteredTemplates: clusterCount,
+			Clusters:           clustersWithMultiple,
+			RequestsBefore:     totalReqBeforeCluster,
+			RequestsAfter:      totalReqAfterClustering,
+			Mappings:           mappingsPtr,
+		}
 	}
 
 	// 0 matches means no templates were found in the directory

@@ -41,31 +41,34 @@ func TestFeedbackStore_MarkFeedback(t *testing.T) {
 func TestFeedbackStore_FeedbackIncrement(t *testing.T) {
 	store := NewFeedbackStore("", 3)
 
-	// Mark the same finding as FP 3 times
-	for i := 0; i < 3; i++ {
-		store.MarkFeedback("CVE-2024-1234", "example.com", "rce", "rce",
+	// Mark the same template as FP from 3 distinct hosts (new behavior)
+	hosts := []string{"example.com", "test.example.com", "prod.example.com"}
+	for _, h := range hosts {
+		store.MarkFeedback("CVE-2024-1234", h, "rce", "rce",
 			FeedbackFalsePositive, "test environment", "")
 	}
 
+	// Get feedback from any of the host signatures
 	fb := store.GetFeedback(SignatureFromFinding("CVE-2024-1234", "example.com", "rce").Hash)
 	if fb == nil {
 		t.Fatal("expected feedback")
 	}
-	if fb.Count != 3 {
-		t.Errorf("expected count 3, got %d", fb.Count)
+	if fb.Count != 1 {
+		t.Errorf("expected count 1 per signature, got %d", fb.Count)
 	}
 	if !fb.AutoSuppressed {
-		t.Error("expected auto-suppressed after 3 FP marks")
+		t.Error("expected auto-suppressed after 3 FP marks from distinct hosts")
 	}
 }
 
 func TestFeedbackStore_ShouldSuppress(t *testing.T) {
-	store := NewFeedbackStore("", 1) // threshold=1 for immediate suppression
+	store := NewFeedbackStoreWithDistinctHosts("", 1, 1) // threshold=1 for immediate suppression
 
 	store.MarkFeedback("CVE-2024-1234", "example.com", "rce", "rce",
 		FeedbackFalsePositive, "test env", "")
 
-	suppressed, reason := store.ShouldSuppress("CVE-2024-1234", "example.com", "rce", "rce")
+	// Should suppress on any host (host-agnostic rule)
+	suppressed, reason := store.ShouldSuppress("CVE-2024-1234", "other-host.com", "rce", "rce")
 	if !suppressed {
 		t.Error("expected suppression")
 	}
@@ -131,16 +134,16 @@ func TestFeedbackStore_Stats(t *testing.T) {
 	store.MarkFeedback("t2", "h2.com", "m2", "xss", FeedbackTruePositive, "", "")
 	store.MarkFeedback("t3", "h3.com", "m3", "rce", FeedbackFalseNegative, "", "")
 
-	// Mark t1 as FP 3 times to trigger auto-suppress
-	store.MarkFeedback("t1", "h1.com", "m1", "sqli", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("t1", "h1.com", "m1", "sqli", FeedbackFalsePositive, "", "")
+	// Mark t1 as FP from 2 more distinct hosts to trigger auto-suppress (total 3 distinct)
+	store.MarkFeedback("t1", "h4.com", "m1", "sqli", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("t1", "h5.com", "m1", "sqli", FeedbackFalsePositive, "", "")
 
 	stats := store.Stats()
-	if stats.TotalFeedback != 3 {
-		t.Errorf("expected 3 feedback, got %d", stats.TotalFeedback)
+	if stats.TotalFeedback != 5 {
+		t.Errorf("expected 5 feedback, got %d", stats.TotalFeedback)
 	}
-	if stats.FalsePositives != 1 {
-		t.Errorf("expected 1 FP, got %d", stats.FalsePositives)
+	if stats.FalsePositives != 3 {
+		t.Errorf("expected 3 FP, got %d", stats.FalsePositives)
 	}
 	if stats.TruePositives != 1 {
 		t.Errorf("expected 1 TP, got %d", stats.TruePositives)
@@ -148,8 +151,8 @@ func TestFeedbackStore_Stats(t *testing.T) {
 	if stats.FalseNegatives != 1 {
 		t.Errorf("expected 1 FN, got %d", stats.FalseNegatives)
 	}
-	if stats.AutoSuppressed != 1 {
-		t.Errorf("expected 1 auto-suppressed, got %d", stats.AutoSuppressed)
+	if stats.AutoSuppressed != 3 {
+		t.Errorf("expected 3 auto-suppressed (all entries for t1), got %d", stats.AutoSuppressed)
 	}
 }
 

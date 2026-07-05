@@ -99,6 +99,7 @@ type Runner struct {
 	inputProvider      provider.InputProvider
 	fuzzFrequencyCache *frequency.Tracker
 	httpStats          *outputstats.Tracker
+	executorOpts       *protocols.ExecutorOptions
 	Logger             *gologger.Logger
 
 	honeypotDetector *honeypotdetector.Detector
@@ -453,6 +454,9 @@ func (r *Runner) Close() {
 	if r.httpStats != nil {
 		r.httpStats.DisplayTopStats(r.options.NoColor)
 	}
+	if r.options.ClusterReport && r.executorOpts != nil && r.executorOpts.ClusterReport != nil {
+		r.executorOpts.ClusterReport.Display(r.options.NoColor)
+	}
 	if newConns, reusedConns := httpclientpool.GetConnectionStats(); newConns+reusedConns > 0 {
 		total := newConns + reusedConns
 		ratio := float64(reusedConns) / float64(total) * 100
@@ -688,6 +692,7 @@ func (r *Runner) RunEnumeration() error {
 
 	executorEngine := core.New(r.options)
 	executorEngine.SetExecuterOptions(executorOpts)
+	r.executorOpts = executorOpts
 
 	if r.profiler != nil {
 		executorEngine.SetProfiler(func(templateID, templatePath, protocol string, durationNs int64, matched, errored bool) {

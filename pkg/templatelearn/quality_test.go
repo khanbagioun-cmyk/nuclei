@@ -49,13 +49,14 @@ func TestScoreTemplate_HighConfidence(t *testing.T) {
 }
 
 func TestScoreTemplate_LowConfidence(t *testing.T) {
-	store := NewFeedbackStore("", 3)
+	store := NewFeedbackStoreWithDistinctHosts("", 3, 10) // high distinct threshold so it won't auto-suppress
 
-	// Add 1 TP, 4 FP → 80% FP rate
-	store.MarkFeedback("bad-template", "host1", "m1", "xss", FeedbackTruePositive, "", "")
-	store.MarkFeedback("bad-template", "host2", "m1", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("bad-template", "host3", "m1", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("bad-template", "host4", "m1", "xss", FeedbackFalsePositive, "", "")
+	// Add 1 TP, 4 FP from 2 distinct hosts → 80% FP rate, below suppression threshold
+	store.MarkFeedback("bad-template", "host1.com", "m1", "xss", FeedbackTruePositive, "", "")
+	store.MarkFeedback("bad-template", "host2.com", "m1", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("bad-template", "host2.com", "m1", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("bad-template", "host3.com", "m1", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("bad-template", "host3.com", "m1", "xss", FeedbackFalsePositive, "", "")
 
 	score := ScoreTemplate(store, "bad-template")
 
@@ -73,10 +74,10 @@ func TestScoreTemplate_LowConfidence(t *testing.T) {
 func TestScoreTemplate_Suppressed(t *testing.T) {
 	store := NewFeedbackStore("", 3)
 
-	// Add enough FPs to trigger auto-suppression (threshold=3, same host)
-	store.MarkFeedback("auto-supp", "h1", "m1", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("auto-supp", "h1", "m1", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("auto-supp", "h1", "m1", "xss", FeedbackFalsePositive, "", "")
+	// Add FPs from 3 distinct hosts to trigger auto-suppression
+	store.MarkFeedback("auto-supp", "h1.com", "m1", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("auto-supp", "h2.com", "m1", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("auto-supp", "h3.com", "m1", "xss", FeedbackFalsePositive, "", "")
 
 	score := ScoreTemplate(store, "auto-supp")
 
@@ -116,10 +117,10 @@ func TestScoreAllTemplates(t *testing.T) {
 		store.MarkFeedback("good", "h"+string(rune('a'+i)), "m", "xss", FeedbackTruePositive, "", "")
 	}
 
-	// Bad template — 3 FPs on same host+matcher to trigger auto-suppression
-	store.MarkFeedback("bad", "h1", "m", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("bad", "h1", "m", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("bad", "h1", "m", "xss", FeedbackFalsePositive, "", "")
+	// Bad template — 3 FPs from distinct hosts to trigger auto-suppression
+	store.MarkFeedback("bad", "h1.com", "m", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("bad", "h2.com", "m", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("bad", "h3.com", "m", "xss", FeedbackFalsePositive, "", "")
 
 	report := ScoreAllTemplates(store)
 
@@ -149,10 +150,10 @@ func TestQualityFilter_ShouldReport(t *testing.T) {
 		store.MarkFeedback("good-tmpl", "h"+string(rune('a'+i)), "m", "xss", FeedbackTruePositive, "", "")
 	}
 
-	// Bad template — auto-suppressed (3 FPs on same signature)
-	store.MarkFeedback("bad-tmpl", "h1", "m", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("bad-tmpl", "h1", "m", "xss", FeedbackFalsePositive, "", "")
-	store.MarkFeedback("bad-tmpl", "h1", "m", "xss", FeedbackFalsePositive, "", "")
+	// Bad template — auto-suppressed (3 FPs from distinct hosts)
+	store.MarkFeedback("bad-tmpl", "h1.com", "m", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("bad-tmpl", "h2.com", "m", "xss", FeedbackFalsePositive, "", "")
+	store.MarkFeedback("bad-tmpl", "h3.com", "m", "xss", FeedbackFalsePositive, "", "")
 
 	qf := NewQualityFilter(store, 0.5)
 
