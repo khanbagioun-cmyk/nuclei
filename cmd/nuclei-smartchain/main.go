@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/projectdiscovery/nuclei/v3/pkg/intelligence"
+	"github.com/projectdiscovery/nuclei/v3/pkg/templatelearn"
 )
 
 func main() {
@@ -34,6 +35,9 @@ func main() {
 	runDast := flag.Bool("dast", true, "run DAST community templates (phase 2.5)")
 	runVersionCheck := flag.Bool("version-check", true, "run version-based CVE check (phase 2.6)")
 	followRedirects := flag.Bool("fr", true, "follow HTTP redirects (enables scope:final-only template feature; default true)")
+	qualityFilter := flag.Bool("qf", true, "enable quality filter (suppress FP-prone templates using learning store; default true)")
+	qualityMinScore := flag.Float64("qf-min-score", 0.3, "minimum quality score for reporting (0.0-1.0, lower=more permissive)")
+	qualityStore := flag.String("qf-store", "", "path to learning store JSON (default: ~/.config/nuclei-dev/learn.json)")
 	profileName := flag.String("profile", "", "use a built-in scan profile (e.g., critical-cve-sweep, quick-kev-sweep, full-exposure-audit, wordpress-deep, tech-discovery-only, dast-injection)")
 	listProfiles := flag.Bool("list-profiles", false, "list available built-in scan profiles")
 	help := flag.Bool("h", false, "show help")
@@ -386,6 +390,32 @@ Examples:
 	totalFindings := phase2Count + dastCount + vcCount + wfCount
 	fmt.Println()
 	fmt.Printf("[smartchain] total findings: %d (phase2=%d + dast=%d + versioncheck=%d + workflows=%d)\n", totalFindings, phase2Count, dastCount, vcCount, wfCount)
+
+	// === Phase 4: Quality filter (suppress FP-prone templates) ===
+	if *qualityFilter {
+		storePath := *qualityStore
+		if storePath == "" {
+			storePath = filepath.Join(os.Getenv("HOME"), ".config", "nuclei-dev", "learn.json")
+		}
+		if _, err := os.Stat(storePath); err == nil {
+			fmt.Println("[smartchain] phase 4: applying quality filter...")
+			qfStart := time.Now()
+
+			store := templatelearn.NewFeedbackStore(storePath, 3)
+			if err := store.Load(); err != nil {
+				fmt.Fprintf(os.Stderr, "[smartchain] phase 4 warning: could not load store: %s\n", err)
+			} else {
+				qf := templatelearn.NewQualityFilter(store, *qualityMinScore)
+				filtered, suppressed := filterResults(resultFile, qf)
+				fmt.Printf("[smartchain] phase 4 complete: %d/%d findings retained (%d suppressed) in %s\n",
+					filtered, filtered+suppressed, suppressed, time.Since(qfStart))
+				totalFindings = filtered
+			}
+		} else {
+			fmt.Println("[smartchain] phase 4: no learning store found, skipping quality filter")
+		}
+	}
+
 	fmt.Print(chainer.Summary())
 
 	if *outputJSON == "" {
@@ -859,4 +889,75 @@ func printResults(path string) {
 			fmt.Printf("  [%s] %s %s — %s\n", severity, templateID, host, matched)
 		}
 	}
+}
+
+// filterResults reads a JSONL results file, applies the quality filter,
+// and rewrites the file with only retained findings.
+// Returns (retained, suppressed) counts.
+func filterResults(path string, qf *templatelearn.QualityFilter) (int, int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	f.Close()
+
+	retained := 0
+	suppressed := 0
+	var kept []string
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &result); err != nil {
+			kept = append(kept, line)
+			retained++
+			continue
+		}
+
+		templateID, _ := result["template-id"].(string)
+		host, _ := result["host"].(string)
+		matcherName, _ := result["matcher-name"].(string)
+
+		// Infer vuln type from info.tags
+		vulnType := ""
+		if info, ok := result["info"].(map[string]interface{}); ok {
+			if tags, ok := info["tags"].([]interface{}); ok && len(tags) > 0 {
+				if t, ok := tags[0].(string); ok {
+					vulnType = t
+				}
+			}
+		}
+
+		shouldReport, reason := qf.ShouldReport(templateID, host, matcherName, vulnType)
+		if shouldReport {
+			kept = append(kept, line)
+			retained++
+		} else {
+			suppressed++
+			fmt.Printf("[smartchain]   suppressed: %s (%s)\n", templateID, reason)
+		}
+	}
+
+	// Rewrite the file with only retained findings
+	out, err := os.Create(path)
+	if err != nil {
+		return retained, suppressed
+	}
+	defer out.Close()
+	w := bufio.NewWriter(out)
+	for _, line := range kept {
+		w.WriteString(line + "\n")
+	}
+	w.Flush()
+
+	return retained, suppressed
 }
