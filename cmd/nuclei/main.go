@@ -361,6 +361,7 @@ on extensive configurability, massive extensibility and ease of use.`)
 		flagSet.BoolVarP(&options.ClusterReport, "cluster-report", "cr", false, "print cluster efficiency statistics at end of scan"),
 		flagSet.BoolVarP(&options.JSExtract, "js-extract", "jx", false, "extract endpoints and secrets from JavaScript responses"),
 		flagSet.BoolVarP(&options.Correlate, "correlate", "co", false, "correlate findings across phases (tech->CVE, exposure->exploit)"),
+		flagSet.BoolVarP(&options.MultiPhase, "multiphase", "mph", false, "in-process multi-phase scan: tech-detect -> filtered vulnscan -> workflows"),
 		flagSet.BoolVar(&options.OfflineHTTP, "passive", false, "enable passive HTTP response processing mode"),
 		flagSet.BoolVarP(&options.ForceAttemptHTTP2, "force-http2", "fh2", false, "force http2 connection on requests"),
 		flagSet.BoolVarP(&options.EnvironmentVariables, "env-vars", "ev", false, "enable environment variables to be used in template"),

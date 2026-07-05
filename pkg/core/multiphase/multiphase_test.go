@@ -46,8 +46,8 @@ func TestIsTechTag(t *testing.T) {
 		{"jenkins", true},
 	}
 	for _, tt := range tests {
-		if got := isTechTag(tt.tag); got != tt.expect {
-			t.Errorf("isTechTag(%q) = %v, want %v", tt.tag, got, tt.expect)
+		if got := IsTechTag(tt.tag); got != tt.expect {
+			t.Errorf("IsTechTag(%q) = %v, want %v", tt.tag, got, tt.expect)
 		}
 	}
 }

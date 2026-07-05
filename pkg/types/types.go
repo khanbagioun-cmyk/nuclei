@@ -199,6 +199,10 @@ type Options struct {
 	// are correlated (tech→CVE, exposure→exploit, default-login→auth) and
 	// boosted/linked findings are emitted.
 	Correlate bool
+	// MultiPhase enables in-process multi-phase scanning: tech detection →
+	// filtered vuln scan → workflows → DAST. Uses shared connection pools
+	// across phases, eliminating shell-out startup tax.
+	MultiPhase bool
 	// UseInstalledChrome skips chrome install and use local instance
 	UseInstalledChrome bool
 	// SystemResolvers enables override of nuclei's DNS client opting to use system resolver stack.

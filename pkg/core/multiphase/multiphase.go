@@ -20,38 +20,6 @@ type PhaseResult struct {
 	Error    error
 }
 
-// TechProfile holds detected technologies from phase 1.
-type TechProfile struct {
-	mu    sync.Mutex
-	techs map[string]bool
-}
-
-func NewTechProfile() *TechProfile {
-	return &TechProfile{techs: make(map[string]bool)}
-}
-
-func (t *TechProfile) Add(tech string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.techs[strings.ToLower(tech)] = true
-}
-
-func (t *TechProfile) Has(tech string) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.techs[strings.ToLower(tech)]
-}
-
-func (t *TechProfile) All() []string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	result := make([]string, 0, len(t.techs))
-	for t := range t.techs {
-		result = append(result, t)
-	}
-	return result
-}
-
 // MultiPhaseEngine runs nuclei in-process with shared connection pools
 // across multiple phases, eliminating the 4x startup tax of shell-out CLIs.
 type MultiPhaseEngine struct {
@@ -130,7 +98,7 @@ func New(ctx context.Context, cfg Config) (*MultiPhaseEngine, error) {
 		if event.Info.Tags.ToSlice() != nil && len(event.Info.Tags.ToSlice()) > 0 {
 			tags := event.Info.Tags.ToSlice()
 			for _, tag := range tags {
-				if isTechTag(tag) {
+				if IsTechTag(tag) {
 					mpe.techProfile.Add(tag)
 				}
 			}
@@ -274,27 +242,6 @@ func (m *MultiPhaseEngine) buildPhase2Tags() []string {
 	all = append(all, priorityTags...)
 
 	return all
-}
-
-// isTechTag returns true if a tag likely represents a detected technology.
-func isTechTag(tag string) bool {
-	lower := strings.ToLower(tag)
-	// Exclude non-tech tags
-	nonTech := map[string]bool{
-		"cve": true, "kev": true, "vkev": true, "exploit": true,
-		"xss": true, "sqli": true, "rce": true, "lfi": true,
-		"ssrf": true, "csrf": true, "dos": true, "fuzz": true,
-		"bruteforce": true, "detect": true, "tech": true,
-		"fingerprint": true, "exposure": true, "misconfig": true,
-		"login": true, "auth": true, "default-login": true,
-		"oast": true, "intrusive": true, "safe": true,
-		"local": true, "txt-service": true,
-	}
-	if nonTech[lower] {
-		return false
-	}
-	// Tech tags are usually product names (wordpress, nginx, apache, etc.)
-	return true
 }
 
 // RunAll executes all phases sequentially and returns combined results.

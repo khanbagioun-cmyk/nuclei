@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -448,6 +449,156 @@ func (r *Runner) runStandardEnumeration(executerOpts *protocols.ExecutorOptions,
 	return r.executeTemplatesInput(store, engine)
 }
 
+// mpTechProfile holds detected technologies from phase 1.
+type mpTechProfile struct {
+	mu    sync.Mutex
+	techs map[string]bool
+}
+
+func newMPTechProfile() *mpTechProfile {
+	return &mpTechProfile{techs: make(map[string]bool)}
+}
+
+func (t *mpTechProfile) Add(tech string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.techs[strings.ToLower(tech)] = true
+}
+
+func (t *mpTechProfile) All() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	result := make([]string, 0, len(t.techs))
+	for t := range t.techs {
+		result = append(result, t)
+	}
+	return result
+}
+
+// mpIsTechTag returns true if a tag likely represents a detected technology.
+func mpIsTechTag(tag string) bool {
+	lower := strings.ToLower(tag)
+	nonTech := map[string]bool{
+		"cve": true, "kev": true, "vkev": true, "exploit": true,
+		"xss": true, "sqli": true, "rce": true, "lfi": true,
+		"ssrf": true, "csrf": true, "dos": true, "fuzz": true,
+		"bruteforce": true, "detect": true, "tech": true,
+		"fingerprint": true, "exposure": true, "misconfig": true,
+		"login": true, "auth": true, "default-login": true,
+		"oast": true, "intrusive": true, "safe": true,
+		"local": true, "txt-service": true,
+	}
+	return !nonTech[lower]
+}
+
+// runMultiPhaseEnumeration runs an in-process multi-phase scan using the
+// existing core.Engine with shared connection pools. Phase 1 detects
+// technologies, Phase 2 runs filtered vuln templates based on detected tech,
+// Phase 3 runs workflows. JS-extracted endpoints are added as additional
+// targets in Phase 2.
+func (r *Runner) runMultiPhaseEnumeration(executorOpts *protocols.ExecutorOptions, store *loader.Store, engine *core.Engine) error {
+	ctx := context.Background()
+
+	if r.inputProvider == nil {
+		return errors.New("no input provider found")
+	}
+
+	techProfile := newMPTechProfile()
+	var findingsCount int
+	var findingsMu sync.Mutex
+
+	mpCallback := func(event *output.ResultEvent) {
+		findingsMu.Lock()
+		findingsCount++
+		findingsMu.Unlock()
+
+		if event.Info.Tags.ToSlice() != nil {
+			for _, tag := range event.Info.Tags.ToSlice() {
+				if mpIsTechTag(tag) {
+					techProfile.Add(tag)
+				}
+			}
+		}
+	}
+
+	r.Logger.Info().Msg("multi-phase: starting multi-phase scan")
+
+	// Phase 1: Tech detection — filter templates by tech/detect/fingerprint tags
+	p1Start := time.Now()
+	p1Templates := r.filterTemplatesByTags(store.Templates(), []string{"tech", "fingerprint", "detect"})
+	p1Before := findingsCount
+	if len(p1Templates) > 0 {
+		engine.ExecuteWithResults(ctx, p1Templates, r.inputProvider, mpCallback)
+		r.Logger.Info().Msgf("multi-phase: phase 1 (tech-detect) complete: %d templates, %d findings in %s",
+			len(p1Templates), findingsCount-p1Before, time.Since(p1Start).Round(time.Millisecond))
+	} else {
+		r.Logger.Warning().Msg("multi-phase: no tech-detect templates found")
+	}
+
+	// Add JS-extracted endpoints to Phase 2 targets
+	if r.executorOpts != nil && r.executorOpts.JSEndpointCollector != nil {
+		jsEndpoints := r.executorOpts.JSEndpointCollector.GetEndpoints()
+		if len(jsEndpoints) > 0 {
+			for _, ep := range jsEndpoints {
+				r.inputProvider.Set("", ep)
+			}
+			r.Logger.Info().Msgf("multi-phase: added %d JS-extracted endpoints to vuln scan targets", len(jsEndpoints))
+		}
+	}
+
+	// Phase 2: Vulnerability scan — filter by detected tech tags + priority tags
+	p2Start := time.Now()
+	p2Tags := append(techProfile.All(), "kev", "vkev", "exploit", "cve")
+	p2Templates := r.filterTemplatesByTags(store.Templates(), p2Tags)
+	p2Before := findingsCount
+	if len(p2Templates) > 0 {
+		engine.ExecuteWithResults(ctx, p2Templates, r.inputProvider, mpCallback)
+		r.Logger.Info().Msgf("multi-phase: phase 2 (vulnscan) complete: %d templates, %d findings in %s",
+			len(p2Templates), findingsCount-p2Before, time.Since(p2Start).Round(time.Millisecond))
+	} else {
+		r.Logger.Warning().Msg("multi-phase: no vuln templates matched detected tech")
+	}
+
+	// Phase 3: Workflows
+	p3Start := time.Now()
+	p3Before := findingsCount
+	if len(store.Workflows()) > 0 {
+		engine.ExecuteWithResults(ctx, store.Workflows(), r.inputProvider, mpCallback)
+		r.Logger.Info().Msgf("multi-phase: phase 3 (workflows) complete: %d workflows, %d findings in %s",
+			len(store.Workflows()), findingsCount-p3Before, time.Since(p3Start).Round(time.Millisecond))
+	}
+
+	// Print detected tech
+	techs := techProfile.All()
+	if len(techs) > 0 {
+		r.Logger.Info().Msgf("multi-phase: detected technologies: %s", strings.Join(techs, ", "))
+	}
+	r.Logger.Info().Msgf("multi-phase: %d total findings across all phases", findingsCount)
+
+	return nil
+}
+
+// filterTemplatesByTags returns templates that have at least one of the given tags.
+func (r *Runner) filterTemplatesByTags(all []*templates.Template, tags []string) []*templates.Template {
+	if len(tags) == 0 {
+		return all
+	}
+	tagSet := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		tagSet[strings.ToLower(t)] = true
+	}
+	var filtered []*templates.Template
+	for _, tmpl := range all {
+		for _, tag := range tmpl.Info.Tags.ToSlice() {
+			if tagSet[strings.ToLower(tag)] {
+				filtered = append(filtered, tmpl)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
 // Close releases all the resources and cleans up
 func (r *Runner) Close() {
 	if r.dastServer != nil {
@@ -853,6 +1004,14 @@ func (r *Runner) RunEnumeration() error {
 	now := time.Now()
 	enumeration := false
 	var results *atomic.Bool
+
+	// Multi-phase scan: run tech detection first, then use results to guide vuln scan
+	if r.options.MultiPhase {
+		if mpErr := r.runMultiPhaseEnumeration(executorOpts, store, executorEngine); mpErr != nil {
+			r.Logger.Error().Msgf("multi-phase scan error: %v", mpErr)
+		}
+	}
+
 	results, err = r.runStandardEnumeration(executorOpts, store, executorEngine)
 	enumeration = true
 
